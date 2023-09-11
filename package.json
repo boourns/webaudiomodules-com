@@ -1,0 +1,12 @@
+{
+  "name": "webaudiomodules.com",
+  "version": "1.0.0",
+  "description": "webaudiomodules.com website",
+  "main": "index.js",
+  "repository": "git@github.com:boourns/webaudiomodules.github.io.git",
+  "license": "MIT",
+  "private": false,
+  "devDependencies": {
+    "wam-community": "^0.4.6"
+  }
+}
