@@ -7,6 +7,9 @@
  * If you are looking for production-ready output files, see mode: "production" (https://webpack.js.org/configuration/mode/).
  */
 /******/ "use strict";
+
+console.log("is this secure context? ", window.isSecureContext)
+
 /******/ var __webpack_modules__ = ({
 
 /***/ "../../../node_modules/@webaudiomodules/sdk-parammgr/dist/index.js":
