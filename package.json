@@ -7,6 +7,6 @@
   "license": "MIT",
   "private": false,
   "devDependencies": {
-    "wam-community": "^0.4.7"
+    "wam-community": "^0.4.8"
   }
 }
