@@ -2,7 +2,7 @@
 # yarn lockfile v1
 
 
-wam-community@^0.4.8:
-  version "0.4.8"
-  resolved "https://registry.yarnpkg.com/wam-community/-/wam-community-0.4.8.tgz#1ce6d3f8c2565329fa7ac26ba5f23f9969178ed5"
-  integrity sha512-ehs11BlDhO28ib8fSjgpvPfb0oT/6b/yvmWOBiOyAelLwnmVdVt6kl8Z9xLGO8oOjxrLe4znHhVrkfJkiH2y3w==
+wam-community@^0.4.9:
+  version "0.4.9"
+  resolved "https://registry.yarnpkg.com/wam-community/-/wam-community-0.4.9.tgz#984fd1062aa50258a3028560d39d537ec64cab7b"
+  integrity sha512-cZLM79DrRCWlloK7FzIcQiMZPsKJS8hiOJJWdYYpzQSeGPacdUmFshWQhp4Mjr/by9+UgpqBjhVG6N8YQoC2hw==

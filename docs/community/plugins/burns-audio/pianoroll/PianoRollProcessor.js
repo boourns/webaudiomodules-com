@@ -10,9 +10,9 @@
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "PPQN": () => (/* binding */ PPQN),
-/* harmony export */   "PP16": () => (/* binding */ PP16),
-/* harmony export */   "Clip": () => (/* binding */ Clip)
+/* harmony export */   Clip: () => (/* binding */ Clip),
+/* harmony export */   PP16: () => (/* binding */ PP16),
+/* harmony export */   PPQN: () => (/* binding */ PPQN)
 /* harmony export */ });
 /* harmony import */ var _shared_util__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../shared/util */ "../shared/util.ts");
 
@@ -118,7 +118,7 @@ class Clip {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "MIDINoteRecorder": () => (/* binding */ MIDINoteRecorder)
+/* harmony export */   MIDINoteRecorder: () => (/* binding */ MIDINoteRecorder)
 /* harmony export */ });
 /* harmony import */ var _shared_midi__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../shared/midi */ "../shared/midi.ts");
 /* harmony import */ var _Clip__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./Clip */ "./src/Clip.ts");
@@ -193,7 +193,7 @@ class MIDINoteRecorder {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "MIDI": () => (/* binding */ MIDI)
+/* harmony export */   MIDI: () => (/* binding */ MIDI)
 /* harmony export */ });
 class MIDI {
 }
@@ -212,9 +212,9 @@ MIDI.CC = 0xB0;
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "token": () => (/* binding */ token),
-/* harmony export */   "constantSource": () => (/* binding */ constantSource),
-/* harmony export */   "noiseSource": () => (/* binding */ noiseSource)
+/* harmony export */   constantSource: () => (/* binding */ constantSource),
+/* harmony export */   noiseSource: () => (/* binding */ noiseSource),
+/* harmony export */   token: () => (/* binding */ token)
 /* harmony export */ });
 function token() {
     return Math.random().toString(36).replace(/[^a-z]+/g, '').substr(0, 16);
@@ -324,7 +324,7 @@ var __webpack_exports__ = {};
   \***********************************/
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "PPQN": () => (/* binding */ PPQN)
+/* harmony export */   PPQN: () => (/* binding */ PPQN)
 /* harmony export */ });
 /* harmony import */ var _shared_midi__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../shared/midi */ "../shared/midi.ts");
 /* harmony import */ var _Clip__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./Clip */ "./src/Clip.ts");

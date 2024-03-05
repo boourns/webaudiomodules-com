@@ -2,6 +2,608 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
+/***/ "./src/FunctionKernel.ts":
+/*!*******************************!*\
+  !*** ./src/FunctionKernel.ts ***!
+  \*******************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   FunctionKernel: () => (/* binding */ FunctionKernel)
+/* harmony export */ });
+/* harmony import */ var _FunctionSequencer__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./FunctionSequencer */ "./src/FunctionSequencer.ts");
+/* harmony import */ var _RemoteUI__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./RemoteUI */ "./src/RemoteUI.ts");
+/* harmony import */ var _RemoteUIController__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./RemoteUIController */ "./src/RemoteUIController.ts");
+/* harmony import */ var tonal__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! tonal */ "./node_modules/tonal/dist/index.mjs");
+
+
+
+
+class FunctionKernel {
+    constructor(processor) {
+        this.remoteUI = new _RemoteUI__WEBPACK_IMPORTED_MODULE_1__.RemoteUI(this);
+        this.api = new _FunctionSequencer__WEBPACK_IMPORTED_MODULE_0__.FunctionAPI(this.remoteUI, this);
+        this.transport = {
+            tempo: 120,
+            timeSigDenominator: 4,
+            timeSigNumerator: 4,
+            playing: false,
+            currentBar: 0,
+            currentBarStarted: 0
+        };
+        this.registerParametersCalled = false;
+        this.parameterIds = [];
+        this.processor = processor;
+        this.additionalState = {};
+        this.additionalStateDirty = false;
+        this.cachedSetState = [];
+        this.uiController = new _RemoteUIController__WEBPACK_IMPORTED_MODULE_2__.RemoteUIController(this, processor.port);
+    }
+    onTick(ticks) {
+        if (!this.function) {
+            return;
+        }
+        try {
+            if (this.function.onTick) {
+                this.function.onTick(ticks);
+            }
+            this.flush();
+        }
+        catch (e) {
+            this.processor.port.postMessage({ source: "functionSeq", action: "error", error: e.toString(), stack: e.stack });
+            this.function = undefined;
+        }
+    }
+    /**
+     * Messages from main thread appear here.
+     * @param {MessageEvent} message
+     */
+    async onMessage(message) {
+        if (message.data && message.data.action == "function") {
+            try {
+                this.uiController.register(undefined);
+                this.registerParametersCalled = false;
+                this.function = new Function('api', 'ui', 'tonal', message.data.code)(this.api, this.remoteUI, tonal__WEBPACK_IMPORTED_MODULE_3__);
+                if (!!this.function.init) {
+                    this.function.init();
+                }
+                if (this.noteList && this.function.onCustomNoteList) {
+                    this.function.onCustomNoteList(this.noteList);
+                }
+                if (!this.registerParametersCalled) {
+                    // may have to not clear the cached set state or something like that. not sure.
+                    this.registerParameters([]);
+                }
+            }
+            catch (e) {
+                this.error(e);
+            }
+            this.flush();
+        }
+        else if (message.data && message.data.action == "noteList") {
+            this.noteList = message.data.noteList;
+            if (this.function && this.function.onCustomNoteList) {
+                this.function.onCustomNoteList(message.data.noteList);
+            }
+            this.flush();
+        }
+        else if (message.data && message.data.action == "additionalState") {
+            this.additionalState = message.data.state;
+            this.onStateChange();
+        }
+        else {
+            // @ts-ignore
+            super._onMessage(message);
+        }
+    }
+    onTransport(transportData) {
+        try {
+            if (this.transport && this.function) {
+                if (this.transport.playing && !transportData.playing) {
+                    if (this.function.onTransportStop) {
+                        this.function.onTransportStop(transportData);
+                    }
+                }
+                else if (!this.transport.playing && transportData.playing) {
+                    if (this.function.onTransportStart) {
+                        this.function.onTransportStart(transportData);
+                    }
+                }
+                this.flush();
+                this.transport = transportData;
+            }
+        }
+        catch (e) {
+            this.error(e);
+        }
+    }
+    onMidi(event) {
+        if (this.function && this.function.onMidi) {
+            try {
+                this.function.onMidi(event.bytes);
+                this.flush();
+            }
+            catch (e) {
+                this.error(e);
+            }
+        }
+    }
+    onAction(name) {
+        if (this.function && this.function.onAction) {
+            try {
+                this.function.onAction(name);
+                this.flush();
+            }
+            catch (e) {
+                this.error(e);
+            }
+        }
+    }
+    onStateChange() {
+        if (this.function && this.function.onStateChange) {
+            try {
+                this.function.onStateChange({ ...this.additionalState });
+                this.flush();
+            }
+            catch (e) {
+                this.error(e);
+            }
+        }
+    }
+    registerParameters(parameters) {
+        let map = {};
+        this.parameterIds = [];
+        for (let p of parameters) {
+            this.validateParameter(p);
+            map[p.id] = p.config;
+            this.parameterIds.push(p.id);
+        }
+        this.processor.port.postMessage({ source: "functionSeq", action: "newParams", params: parameters });
+        this.processor.updateParameters(map);
+        for (let state of this.cachedSetState) {
+            this.processor._setParameterValues(state, false);
+        }
+        this.cachedSetState = [];
+        this.registerParametersCalled = true;
+    }
+    validateParameter(p) {
+        if (p.id === undefined || p.config === undefined) {
+            throw new Error(`Invalid parameter ${p}: must have id and config defined`);
+        }
+        if (p.id.length == 0) {
+            throw new Error("Invalid parameter: id must be string and not blank");
+        }
+        if (['float', 'int', 'boolean', 'choice'].findIndex(t => t == p.config.type) == -1) {
+            throw new Error(`Invalid parameter type ${p.config.type}`);
+        }
+        const VALID_CONFIG_KEYS = ["label", "type", "defaultValue", "minValue", "maxValue", "discreteStep", "exponent", "choices", "units"];
+        for (let key of Object.keys(p.config)) {
+            if (VALID_CONFIG_KEYS.indexOf(key) == -1) {
+                throw new Error(`Param ${p.id}: Invalid configuration key ${key}.  Valid configuration keys are ${VALID_CONFIG_KEYS.join(",")}`);
+            }
+        }
+    }
+    setAdditionalState(name, value) {
+        this.additionalState[name] = value;
+        this.additionalStateDirty = true;
+    }
+    getAdditionalState(name) {
+        return this.additionalState[name];
+    }
+    error(e) {
+        this.processor.port.postMessage({ source: "functionSeq", action: "error", error: e.toString(), stack: e.stack });
+        this.function = undefined;
+    }
+    flush() {
+        this.uiController.flush();
+        if (this.additionalStateDirty) {
+            this.additionalStateDirty = false;
+            this.processor.port.postMessage({ source: "functionSeq", action: "additionalState", state: this.additionalState });
+            this.onStateChange();
+        }
+    }
+}
+
+
+/***/ }),
+
+/***/ "./src/FunctionSeqProcessor.ts":
+/*!*************************************!*\
+  !*** ./src/FunctionSeqProcessor.ts ***!
+  \*************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   FunctionSequencerProcessor: () => (/* binding */ FunctionSequencerProcessor),
+/* harmony export */   MIDI: () => (/* binding */ MIDI)
+/* harmony export */ });
+/* harmony import */ var _FunctionKernel__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./FunctionKernel */ "./src/FunctionKernel.ts");
+
+const moduleId = "com.sequencerParty.functionSeq";
+const audioWorkletGlobalScope = globalThis;
+const PPQN = 96;
+class MIDI {
+}
+MIDI.NOTE_ON = 0x90;
+MIDI.NOTE_OFF = 0x80;
+MIDI.CC = 0xB0;
+const { registerProcessor } = audioWorkletGlobalScope;
+const ModuleScope = audioWorkletGlobalScope.webAudioModules.getModuleScope(moduleId);
+const { WamProcessor, } = ModuleScope;
+const DynamicParameterProcessor = ModuleScope.DynamicParameterProcessor;
+class FunctionSequencerProcessor extends DynamicParameterProcessor {
+    constructor(options) {
+        super(options);
+        this.count = 0;
+        this.function = new _FunctionKernel__WEBPACK_IMPORTED_MODULE_0__.FunctionKernel(this);
+    }
+    /**
+     * Implement custom DSP here.
+     * @param {number} startSample beginning of processing slice
+     * @param {number} endSample end of processing slice
+     * @param {Float32Array[][]} inputs
+     * @param {Float32Array[][]} outputs
+     */
+    _process(startSample, endSample, inputs, outputs) {
+        const { currentTime } = audioWorkletGlobalScope;
+        if (!this.transportData) {
+            return;
+        }
+        if (this.transportData.playing && currentTime >= this.transportData.currentBarStarted) {
+            var timeElapsed = currentTime - this.transportData.currentBarStarted;
+            var beatPosition = (this.transportData.currentBar * this.transportData.timeSigNumerator) + ((this.transportData.tempo / 60.0) * timeElapsed);
+            var tickPosition = Math.floor(beatPosition * PPQN);
+            if (this.ticks != tickPosition) {
+                this.ticks = tickPosition;
+                this.function.onTick(this.ticks);
+            }
+        }
+        return;
+    }
+    /**
+     * Messages from main thread appear here.
+     * @param {MessageEvent} message
+     */
+    async _onMessage(message) {
+        var _a, _b, _c;
+        if (message.data && message.data.source == "function") {
+            this.function.onMessage(message);
+        }
+        else if (message.data && message.data.source == "remoteUI") {
+            this.function.uiController.onMessage(message);
+        }
+        else {
+            if (message.data && message.data.request == "set/state") {
+                if (!this.function.registerParametersCalled && ((_c = (_b = (_a = message.data) === null || _a === void 0 ? void 0 : _a.content) === null || _b === void 0 ? void 0 : _b.state) === null || _c === void 0 ? void 0 : _c.parameterValues)) {
+                    // we queue up any setState calls until the script registers parameters, and then we send them out.
+                    // otherwise we drop initial state values saved in the script
+                    this.function.cachedSetState.push(message.data.content.state.parameterValues);
+                }
+            }
+            // @ts-ignore
+            super._onMessage(message);
+        }
+    }
+    _onTransport(transportData) {
+        this.transportData = transportData;
+        this.function.onTransport(transportData);
+    }
+    _onMidi(midiData) {
+        this.function.onMidi(midiData);
+    }
+}
+try {
+    registerProcessor('com.sequencerParty.functionSeq', FunctionSequencerProcessor);
+}
+catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(error);
+}
+
+
+/***/ }),
+
+/***/ "./src/FunctionSequencer.ts":
+/*!**********************************!*\
+  !*** ./src/FunctionSequencer.ts ***!
+  \**********************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   FunctionAPI: () => (/* binding */ FunctionAPI)
+/* harmony export */ });
+/* harmony import */ var _FunctionSeqProcessor__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./FunctionSeqProcessor */ "./src/FunctionSeqProcessor.ts");
+var __classPrivateFieldSet = (undefined && undefined.__classPrivateFieldSet) || function (receiver, state, value, kind, f) {
+    if (kind === "m") throw new TypeError("Private method is not writable");
+    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+    return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
+};
+var __classPrivateFieldGet = (undefined && undefined.__classPrivateFieldGet) || function (receiver, state, kind, f) {
+    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+    return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _FunctionAPI_ui, _FunctionAPI_kernel;
+
+const PPQN = 96;
+const audioWorkletGlobalScope = globalThis;
+class FunctionAPI {
+    constructor(ui, kernel) {
+        _FunctionAPI_ui.set(this, void 0);
+        _FunctionAPI_kernel.set(this, void 0);
+        __classPrivateFieldSet(this, _FunctionAPI_ui, ui, "f");
+        __classPrivateFieldSet(this, _FunctionAPI_kernel, kernel, "f");
+    }
+    /**
+     * emits a MIDI Note on message followed by a MIDI Note off message delayed by the duration
+     * @param channel {number} the MIDI channel minus one, from 0-15. So to emit on channel 1, send a 0.
+     * @param note {number} the MIDI note number, from 0-127
+     * @param velocity {number} MIDI note on velocity, from 0-127
+     * @param duration {number} the midi note duration, in seconds.
+     * @param startTime {number} optionally set the starting time of the note, in relation to api.getCurrentTime()
+     * */
+    emitNote(channel, note, velocity, duration, startTime) {
+        if (startTime === undefined) {
+            startTime = audioWorkletGlobalScope.currentTime;
+        }
+        if (!(Number.isInteger(channel) && channel >= 0 && channel <= 15)) {
+            throw new Error(`emitNote: channel value ${channel} invalid.  Must be integer value from 0-15 (ch#1-#16)`);
+        }
+        this.emitMidiEvent([_FunctionSeqProcessor__WEBPACK_IMPORTED_MODULE_0__.MIDI.NOTE_ON | channel, note, velocity], startTime);
+        this.emitMidiEvent([_FunctionSeqProcessor__WEBPACK_IMPORTED_MODULE_0__.MIDI.NOTE_OFF | channel, note, velocity], startTime + duration);
+    }
+    /**
+     * Emit a regular, non-sysex MIDI message up to 3 bytes in length.
+     * @param bytes {number[]} a 1 to 3 array of bytes, the raw MIDI message.
+     * @param eventTime {number} the time to emit the event, relative to api.getCurrentTime()
+     * */
+    emitMidiEvent(bytes, eventTime) {
+        if (bytes.length > 3) {
+            throw new Error("emitMidiEvent can only emit regular MIDI messages - use emitSysex to emit sysex messages.");
+        }
+        for (let i = 0; i < bytes.length; i++) {
+            if (!Number.isInteger(bytes[i]) || bytes[i] < 0 || bytes[i] > 255) {
+                throw new Error(`MIDI event byte at index ${i} is not an integer between 0-255, is ${bytes[i]}`);
+            }
+        }
+        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").processor.emitEvents({ type: 'wam-midi', time: eventTime, data: { bytes } });
+    }
+    /**
+     * returns the current time
+     * @returns {number} the current audioContext time, in seconds
+     */
+    getCurrentTime() {
+        return audioWorkletGlobalScope.currentTime;
+    }
+    /**
+     * returns the duration, in seconds, for the input number of ticks
+     * @param ticks {number} the number of ticks to convert to seconds
+     */
+    getTickDuration(ticks) {
+        return ticks * 1.0 / ((__classPrivateFieldGet(this, _FunctionAPI_kernel, "f").transport.tempo / 60.0) * PPQN);
+    }
+    /**
+     * Set (or unset) a list of named MIDI notes.  Used to inform earlier MIDI processors what MIDI notes are valid.
+     * @param noteList {NoteDefinition[]} a list of midi notes this processor accepts.  Set to undefined to clear the custom note list.
+     */
+    setCustomNoteList(noteList) {
+        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").processor.port.postMessage({ source: "functionSeq", action: "noteList", noteList });
+    }
+    /**
+     * Register the complete list of plugin parameters.  These parameters can be mapped to UI controls and are exposed to the host for automation.
+     * @param parameters {ParameterDefinition[]} the list of parameters to register for the plugin.
+     */
+    registerParameters(parameters) {
+        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").registerParameters(parameters);
+    }
+    /**
+     * Register a custom UI interface.
+     * @params root {RemoteUIElement} the top-level root UI element, usually a ui.Col or ui.Row.
+     */
+    registerUI(root) {
+        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").uiController.register(root);
+    }
+    /**
+     * Stores an additional variable into the patch.  This gets sent to other collaborators and will be restored after refreshing the page.
+     * Be warned: this is an expensive operation as the value change is sent to the server and all other users.  Only use this function
+     * to hold state that is not in a registered parameter (which are automatically synced to the server).
+     * Calling setState() will result in your onStateChange() callback running on all plugin instances including locally.
+     * @param name {string} the variable name
+     * @param value {any} the value to store
+     */
+    setState(name, value) {
+        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").setAdditionalState(name, value);
+    }
+    /**
+     * Returns the stored value for a variable name that was previously stored with setState.
+     * @param name {string} the variable name to return
+     * @returns {any} the previously stored value, or undefined if nothing is stored.
+     */
+    getState(name) {
+        return __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").getAdditionalState(name);
+    }
+    /**
+     * Returns the values for all parameters that were registered by registerParameters.
+     * @returns {Record<string, number>} a map of parameter names to parameter values
+     */
+    getParams() {
+        let params = {};
+        for (let id of __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").parameterIds) {
+            params[id] = __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").processor._parameterState[id].value;
+        }
+        return params;
+    }
+}
+_FunctionAPI_ui = new WeakMap(), _FunctionAPI_kernel = new WeakMap();
+
+
+/***/ }),
+
+/***/ "./src/RemoteUI.ts":
+/*!*************************!*\
+  !*** ./src/RemoteUI.ts ***!
+  \*************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   RemoteUI: () => (/* binding */ RemoteUI)
+/* harmony export */ });
+var __classPrivateFieldSet = (undefined && undefined.__classPrivateFieldSet) || function (receiver, state, value, kind, f) {
+    if (kind === "m") throw new TypeError("Private method is not writable");
+    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+    return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
+};
+var __classPrivateFieldGet = (undefined && undefined.__classPrivateFieldGet) || function (receiver, state, kind, f) {
+    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+    return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _RemoteUI_kernel;
+class RemoteUI {
+    constructor(kernel) {
+        _RemoteUI_kernel.set(this, void 0);
+        __classPrivateFieldSet(this, _RemoteUI_kernel, kernel, "f");
+    }
+    Col(name, children, properties) {
+        return {
+            type: "col",
+            name,
+            children,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Row(name, children, properties) {
+        return {
+            type: "row",
+            name,
+            children,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Action(name, properties) {
+        return {
+            type: "action",
+            name,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Toggle(name, properties) {
+        return {
+            type: "toggle",
+            name,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Knob(name, properties) {
+        return {
+            type: "knob",
+            name,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Slider(name, properties) {
+        return {
+            type: "slider",
+            name,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Label(name, properties) {
+        return {
+            type: "label",
+            name,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Select(name, properties) {
+        return {
+            type: "select",
+            name,
+            props: properties !== null && properties !== void 0 ? properties : {}
+        };
+    }
+    Highlight(name, value) {
+        __classPrivateFieldGet(this, _RemoteUI_kernel, "f").uiController.highlight(name, value);
+    }
+}
+_RemoteUI_kernel = new WeakMap();
+
+
+/***/ }),
+
+/***/ "./src/RemoteUIController.ts":
+/*!***********************************!*\
+  !*** ./src/RemoteUIController.ts ***!
+  \***********************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   RemoteUIController: () => (/* binding */ RemoteUIController)
+/* harmony export */ });
+// this class runs in the remote context, handling the client's ui perspective
+class RemoteUIController {
+    constructor(kernel, port) {
+        this.kernel = kernel;
+        this.port = port;
+        this.pendingUpdates = [];
+    }
+    register(root) {
+        this.ui = root;
+        this.uiMap = {};
+        if (this.ui) {
+            const setMapValues = (el) => {
+                if (this.uiMap[el.name]) {
+                    throw new Error(`UI has two elements named ${el.name}`);
+                }
+                this.uiMap[el.name] = {};
+                if (el.children) {
+                    for (let child of el.children) {
+                        setMapValues(child);
+                    }
+                }
+            };
+            setMapValues(this.ui);
+        }
+        this.port.postMessage({ source: "remoteUI", action: "ui", ui: root ? JSON.stringify(root) : undefined });
+    }
+    highlight(name, value) {
+        try {
+            if (this.uiMap[name].highlighted != value) {
+                this.uiMap[name].highlighted = value;
+                this.pendingUpdates.push({ t: "high", f: name, v: value });
+            }
+        }
+        catch (e) {
+            console.error(`error highlighting ${name}: ${e}`);
+        }
+    }
+    flush() {
+        const updates = this.pendingUpdates;
+        this.pendingUpdates = [];
+        if (updates.length > 0) {
+            this.port.postMessage({ source: "remoteUI", action: "up", updates });
+        }
+    }
+    onMessage(message) {
+        if (!message.data || message.data.source != "remoteUI") {
+            return;
+        }
+        if (message.data.action == "action" && message.data.name) {
+            this.kernel.onAction(message.data.name);
+        }
+    }
+}
+
+
+/***/ }),
+
 /***/ "./node_modules/@tonaljs/abc-notation/dist/index.mjs":
 /*!***********************************************************!*\
   !*** ./node_modules/@tonaljs/abc-notation/dist/index.mjs ***!
@@ -10,12 +612,12 @@
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "abcToScientificNotation": () => (/* binding */ abcToScientificNotation),
+/* harmony export */   abcToScientificNotation: () => (/* binding */ abcToScientificNotation),
 /* harmony export */   "default": () => (/* binding */ abc_notation_default),
-/* harmony export */   "distance": () => (/* binding */ distance),
-/* harmony export */   "scientificToAbcNotation": () => (/* binding */ scientificToAbcNotation),
-/* harmony export */   "tokenize": () => (/* binding */ tokenize),
-/* harmony export */   "transpose": () => (/* binding */ transpose)
+/* harmony export */   distance: () => (/* binding */ distance),
+/* harmony export */   scientificToAbcNotation: () => (/* binding */ scientificToAbcNotation),
+/* harmony export */   tokenize: () => (/* binding */ tokenize),
+/* harmony export */   transpose: () => (/* binding */ transpose)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 // index.ts
@@ -78,13 +680,13 @@ var abc_notation_default = {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "compact": () => (/* binding */ compact),
-/* harmony export */   "permutations": () => (/* binding */ permutations),
-/* harmony export */   "range": () => (/* binding */ range),
-/* harmony export */   "rotate": () => (/* binding */ rotate),
-/* harmony export */   "shuffle": () => (/* binding */ shuffle),
-/* harmony export */   "sortedNoteNames": () => (/* binding */ sortedNoteNames),
-/* harmony export */   "sortedUniqNoteNames": () => (/* binding */ sortedUniqNoteNames)
+/* harmony export */   compact: () => (/* binding */ compact),
+/* harmony export */   permutations: () => (/* binding */ permutations),
+/* harmony export */   range: () => (/* binding */ range),
+/* harmony export */   rotate: () => (/* binding */ rotate),
+/* harmony export */   shuffle: () => (/* binding */ shuffle),
+/* harmony export */   sortedNoteNames: () => (/* binding */ sortedNoteNames),
+/* harmony export */   sortedUniqNoteNames: () => (/* binding */ sortedUniqNoteNames)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 // index.ts
@@ -160,7 +762,7 @@ function permutations(arr) {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ chord_detect_default),
-/* harmony export */   "detect": () => (/* binding */ detect)
+/* harmony export */   detect: () => (/* binding */ detect)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_chord_type__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/chord-type */ "./node_modules/@tonaljs/chord-type/dist/index.mjs");
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
@@ -250,17 +852,17 @@ var chord_detect_default = { detect };
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "add": () => (/* binding */ add),
-/* harmony export */   "addAlias": () => (/* binding */ addAlias),
-/* harmony export */   "all": () => (/* binding */ all),
-/* harmony export */   "chordType": () => (/* binding */ chordType),
+/* harmony export */   add: () => (/* binding */ add),
+/* harmony export */   addAlias: () => (/* binding */ addAlias),
+/* harmony export */   all: () => (/* binding */ all),
+/* harmony export */   chordType: () => (/* binding */ chordType),
 /* harmony export */   "default": () => (/* binding */ chord_type_default),
-/* harmony export */   "entries": () => (/* binding */ entries),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "keys": () => (/* binding */ keys),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "removeAll": () => (/* binding */ removeAll),
-/* harmony export */   "symbols": () => (/* binding */ symbols)
+/* harmony export */   entries: () => (/* binding */ entries),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   keys: () => (/* binding */ keys),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   removeAll: () => (/* binding */ removeAll),
+/* harmony export */   symbols: () => (/* binding */ symbols)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 /* harmony import */ var _tonaljs_pcset__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/pcset */ "./node_modules/@tonaljs/pcset/dist/index.mjs");
@@ -478,16 +1080,16 @@ var chord_type_default = {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "chord": () => (/* binding */ chord),
-/* harmony export */   "chordScales": () => (/* binding */ chordScales),
+/* harmony export */   chord: () => (/* binding */ chord),
+/* harmony export */   chordScales: () => (/* binding */ chordScales),
 /* harmony export */   "default": () => (/* binding */ chord_default),
-/* harmony export */   "detect": () => (/* reexport safe */ _tonaljs_chord_detect__WEBPACK_IMPORTED_MODULE_0__.detect),
-/* harmony export */   "extended": () => (/* binding */ extended),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "getChord": () => (/* binding */ getChord),
-/* harmony export */   "reduced": () => (/* binding */ reduced),
-/* harmony export */   "tokenize": () => (/* binding */ tokenize),
-/* harmony export */   "transpose": () => (/* binding */ transpose)
+/* harmony export */   detect: () => (/* reexport safe */ _tonaljs_chord_detect__WEBPACK_IMPORTED_MODULE_0__.detect),
+/* harmony export */   extended: () => (/* binding */ extended),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   getChord: () => (/* binding */ getChord),
+/* harmony export */   reduced: () => (/* binding */ reduced),
+/* harmony export */   tokenize: () => (/* binding */ tokenize),
+/* harmony export */   transpose: () => (/* binding */ transpose)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_chord_detect__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/chord-detect */ "./node_modules/@tonaljs/chord-detect/dist/index.mjs");
 /* harmony import */ var _tonaljs_chord_type__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/chord-type */ "./node_modules/@tonaljs/chord-type/dist/index.mjs");
@@ -630,12 +1232,12 @@ var chord_default = {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "compact": () => (/* binding */ compact),
+/* harmony export */   compact: () => (/* binding */ compact),
 /* harmony export */   "default": () => (/* binding */ collection_default),
-/* harmony export */   "permutations": () => (/* binding */ permutations),
-/* harmony export */   "range": () => (/* binding */ range),
-/* harmony export */   "rotate": () => (/* binding */ rotate),
-/* harmony export */   "shuffle": () => (/* binding */ shuffle)
+/* harmony export */   permutations: () => (/* binding */ permutations),
+/* harmony export */   range: () => (/* binding */ range),
+/* harmony export */   rotate: () => (/* binding */ rotate),
+/* harmony export */   shuffle: () => (/* binding */ shuffle)
 /* harmony export */ });
 // index.ts
 function ascR(b, n) {
@@ -707,23 +1309,23 @@ var collection_default = {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "accToAlt": () => (/* binding */ accToAlt),
-/* harmony export */   "altToAcc": () => (/* binding */ altToAcc),
-/* harmony export */   "coordToInterval": () => (/* binding */ coordToInterval),
-/* harmony export */   "coordToNote": () => (/* binding */ coordToNote),
-/* harmony export */   "decode": () => (/* binding */ decode),
-/* harmony export */   "deprecate": () => (/* binding */ deprecate),
-/* harmony export */   "distance": () => (/* binding */ distance),
-/* harmony export */   "encode": () => (/* binding */ encode),
-/* harmony export */   "fillStr": () => (/* binding */ fillStr),
-/* harmony export */   "interval": () => (/* binding */ interval),
-/* harmony export */   "isNamed": () => (/* binding */ isNamed),
-/* harmony export */   "isPitch": () => (/* binding */ isPitch),
-/* harmony export */   "note": () => (/* binding */ note),
-/* harmony export */   "stepToLetter": () => (/* binding */ stepToLetter),
-/* harmony export */   "tokenizeInterval": () => (/* binding */ tokenizeInterval),
-/* harmony export */   "tokenizeNote": () => (/* binding */ tokenizeNote),
-/* harmony export */   "transpose": () => (/* binding */ transpose)
+/* harmony export */   accToAlt: () => (/* binding */ accToAlt),
+/* harmony export */   altToAcc: () => (/* binding */ altToAcc),
+/* harmony export */   coordToInterval: () => (/* binding */ coordToInterval),
+/* harmony export */   coordToNote: () => (/* binding */ coordToNote),
+/* harmony export */   decode: () => (/* binding */ decode),
+/* harmony export */   deprecate: () => (/* binding */ deprecate),
+/* harmony export */   distance: () => (/* binding */ distance),
+/* harmony export */   encode: () => (/* binding */ encode),
+/* harmony export */   fillStr: () => (/* binding */ fillStr),
+/* harmony export */   interval: () => (/* binding */ interval),
+/* harmony export */   isNamed: () => (/* binding */ isNamed),
+/* harmony export */   isPitch: () => (/* binding */ isPitch),
+/* harmony export */   note: () => (/* binding */ note),
+/* harmony export */   stepToLetter: () => (/* binding */ stepToLetter),
+/* harmony export */   tokenizeInterval: () => (/* binding */ tokenizeInterval),
+/* harmony export */   tokenizeNote: () => (/* binding */ tokenizeNote),
+/* harmony export */   transpose: () => (/* binding */ transpose)
 /* harmony export */ });
 // src/utils.ts
 var fillStr = (s, n) => Array(Math.abs(n) + 1).join(s);
@@ -971,11 +1573,11 @@ function distance(fromNote, toNote) {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ duration_value_default),
-/* harmony export */   "fraction": () => (/* binding */ fraction),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "shorthands": () => (/* binding */ shorthands),
-/* harmony export */   "value": () => (/* binding */ value)
+/* harmony export */   fraction: () => (/* binding */ fraction),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   shorthands: () => (/* binding */ shorthands),
+/* harmony export */   value: () => (/* binding */ value)
 /* harmony export */ });
 // data.ts
 var DATA = [
@@ -1075,21 +1677,21 @@ function calcDots(fraction2, dots) {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "add": () => (/* binding */ add),
-/* harmony export */   "addTo": () => (/* binding */ addTo),
+/* harmony export */   add: () => (/* binding */ add),
+/* harmony export */   addTo: () => (/* binding */ addTo),
 /* harmony export */   "default": () => (/* binding */ interval_default),
-/* harmony export */   "distance": () => (/* binding */ distance),
-/* harmony export */   "fromSemitones": () => (/* binding */ fromSemitones),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "invert": () => (/* binding */ invert),
-/* harmony export */   "name": () => (/* binding */ name),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "num": () => (/* binding */ num),
-/* harmony export */   "quality": () => (/* binding */ quality),
-/* harmony export */   "semitones": () => (/* binding */ semitones),
-/* harmony export */   "simplify": () => (/* binding */ simplify),
-/* harmony export */   "substract": () => (/* binding */ substract),
-/* harmony export */   "transposeFifths": () => (/* binding */ transposeFifths)
+/* harmony export */   distance: () => (/* binding */ distance),
+/* harmony export */   fromSemitones: () => (/* binding */ fromSemitones),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   invert: () => (/* binding */ invert),
+/* harmony export */   name: () => (/* binding */ name),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   num: () => (/* binding */ num),
+/* harmony export */   quality: () => (/* binding */ quality),
+/* harmony export */   semitones: () => (/* binding */ semitones),
+/* harmony export */   simplify: () => (/* binding */ simplify),
+/* harmony export */   substract: () => (/* binding */ substract),
+/* harmony export */   transposeFifths: () => (/* binding */ transposeFifths)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 // index.ts
@@ -1175,9 +1777,9 @@ function combinator(fn) {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ key_default),
-/* harmony export */   "majorKey": () => (/* binding */ majorKey),
-/* harmony export */   "majorTonicFromKeySignature": () => (/* binding */ majorTonicFromKeySignature),
-/* harmony export */   "minorKey": () => (/* binding */ minorKey)
+/* harmony export */   majorKey: () => (/* binding */ majorKey),
+/* harmony export */   majorTonicFromKeySignature: () => (/* binding */ majorTonicFromKeySignature),
+/* harmony export */   minorKey: () => (/* binding */ minorKey)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 /* harmony import */ var _tonaljs_note__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/note */ "./node_modules/@tonaljs/note/dist/index.mjs");
@@ -1333,11 +1935,11 @@ var key_default = { majorKey, majorTonicFromKeySignature, minorKey };
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ midi_default),
-/* harmony export */   "freqToMidi": () => (/* binding */ freqToMidi),
-/* harmony export */   "isMidi": () => (/* binding */ isMidi),
-/* harmony export */   "midiToFreq": () => (/* binding */ midiToFreq),
-/* harmony export */   "midiToNoteName": () => (/* binding */ midiToNoteName),
-/* harmony export */   "toMidi": () => (/* binding */ toMidi)
+/* harmony export */   freqToMidi: () => (/* binding */ freqToMidi),
+/* harmony export */   isMidi: () => (/* binding */ isMidi),
+/* harmony export */   midiToFreq: () => (/* binding */ midiToFreq),
+/* harmony export */   midiToNoteName: () => (/* binding */ midiToNoteName),
+/* harmony export */   toMidi: () => (/* binding */ toMidi)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 // index.ts
@@ -1389,17 +1991,17 @@ var midi_default = { isMidi, toMidi, midiToFreq, midiToNoteName, freqToMidi };
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "all": () => (/* binding */ all),
+/* harmony export */   all: () => (/* binding */ all),
 /* harmony export */   "default": () => (/* binding */ mode_default),
-/* harmony export */   "distance": () => (/* binding */ distance),
-/* harmony export */   "entries": () => (/* binding */ entries),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "mode": () => (/* binding */ mode),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "notes": () => (/* binding */ notes),
-/* harmony export */   "relativeTonic": () => (/* binding */ relativeTonic),
-/* harmony export */   "seventhChords": () => (/* binding */ seventhChords),
-/* harmony export */   "triads": () => (/* binding */ triads)
+/* harmony export */   distance: () => (/* binding */ distance),
+/* harmony export */   entries: () => (/* binding */ entries),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   mode: () => (/* binding */ mode),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   notes: () => (/* binding */ notes),
+/* harmony export */   relativeTonic: () => (/* binding */ relativeTonic),
+/* harmony export */   seventhChords: () => (/* binding */ seventhChords),
+/* harmony export */   triads: () => (/* binding */ triads)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_collection__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/collection */ "./node_modules/@tonaljs/collection/dist/index.mjs");
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
@@ -1518,34 +2120,34 @@ var mode_default = {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "accidentals": () => (/* binding */ accidentals),
-/* harmony export */   "ascending": () => (/* binding */ ascending),
-/* harmony export */   "chroma": () => (/* binding */ chroma),
+/* harmony export */   accidentals: () => (/* binding */ accidentals),
+/* harmony export */   ascending: () => (/* binding */ ascending),
+/* harmony export */   chroma: () => (/* binding */ chroma),
 /* harmony export */   "default": () => (/* binding */ note_default),
-/* harmony export */   "descending": () => (/* binding */ descending),
-/* harmony export */   "enharmonic": () => (/* binding */ enharmonic),
-/* harmony export */   "freq": () => (/* binding */ freq),
-/* harmony export */   "fromFreq": () => (/* binding */ fromFreq),
-/* harmony export */   "fromFreqSharps": () => (/* binding */ fromFreqSharps),
-/* harmony export */   "fromMidi": () => (/* binding */ fromMidi),
-/* harmony export */   "fromMidiSharps": () => (/* binding */ fromMidiSharps),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "midi": () => (/* binding */ midi),
-/* harmony export */   "name": () => (/* binding */ name),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "octave": () => (/* binding */ octave),
-/* harmony export */   "pitchClass": () => (/* binding */ pitchClass),
-/* harmony export */   "simplify": () => (/* binding */ simplify),
-/* harmony export */   "sortedNames": () => (/* binding */ sortedNames),
-/* harmony export */   "sortedUniqNames": () => (/* binding */ sortedUniqNames),
-/* harmony export */   "tr": () => (/* binding */ tr),
-/* harmony export */   "trBy": () => (/* binding */ trBy),
-/* harmony export */   "trFifths": () => (/* binding */ trFifths),
-/* harmony export */   "trFrom": () => (/* binding */ trFrom),
-/* harmony export */   "transpose": () => (/* binding */ transpose),
-/* harmony export */   "transposeBy": () => (/* binding */ transposeBy),
-/* harmony export */   "transposeFifths": () => (/* binding */ transposeFifths),
-/* harmony export */   "transposeFrom": () => (/* binding */ transposeFrom)
+/* harmony export */   descending: () => (/* binding */ descending),
+/* harmony export */   enharmonic: () => (/* binding */ enharmonic),
+/* harmony export */   freq: () => (/* binding */ freq),
+/* harmony export */   fromFreq: () => (/* binding */ fromFreq),
+/* harmony export */   fromFreqSharps: () => (/* binding */ fromFreqSharps),
+/* harmony export */   fromMidi: () => (/* binding */ fromMidi),
+/* harmony export */   fromMidiSharps: () => (/* binding */ fromMidiSharps),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   midi: () => (/* binding */ midi),
+/* harmony export */   name: () => (/* binding */ name),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   octave: () => (/* binding */ octave),
+/* harmony export */   pitchClass: () => (/* binding */ pitchClass),
+/* harmony export */   simplify: () => (/* binding */ simplify),
+/* harmony export */   sortedNames: () => (/* binding */ sortedNames),
+/* harmony export */   sortedUniqNames: () => (/* binding */ sortedUniqNames),
+/* harmony export */   tr: () => (/* binding */ tr),
+/* harmony export */   trBy: () => (/* binding */ trBy),
+/* harmony export */   trFifths: () => (/* binding */ trFifths),
+/* harmony export */   trFrom: () => (/* binding */ trFrom),
+/* harmony export */   transpose: () => (/* binding */ transpose),
+/* harmony export */   transposeBy: () => (/* binding */ transposeBy),
+/* harmony export */   transposeFifths: () => (/* binding */ transposeFifths),
+/* harmony export */   transposeFrom: () => (/* binding */ transposeFrom)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 /* harmony import */ var _tonaljs_midi__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/midi */ "./node_modules/@tonaljs/midi/dist/index.mjs");
@@ -1686,19 +2288,19 @@ var note_default = {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "EmptyPcset": () => (/* binding */ EmptyPcset),
-/* harmony export */   "chromaToIntervals": () => (/* binding */ chromaToIntervals),
-/* harmony export */   "chromas": () => (/* binding */ chromas),
+/* harmony export */   EmptyPcset: () => (/* binding */ EmptyPcset),
+/* harmony export */   chromaToIntervals: () => (/* binding */ chromaToIntervals),
+/* harmony export */   chromas: () => (/* binding */ chromas),
 /* harmony export */   "default": () => (/* binding */ pcset_default),
-/* harmony export */   "filter": () => (/* binding */ filter),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "includes": () => (/* binding */ includes),
-/* harmony export */   "isEqual": () => (/* binding */ isEqual),
-/* harmony export */   "isNoteIncludedIn": () => (/* binding */ isNoteIncludedIn),
-/* harmony export */   "isSubsetOf": () => (/* binding */ isSubsetOf),
-/* harmony export */   "isSupersetOf": () => (/* binding */ isSupersetOf),
-/* harmony export */   "modes": () => (/* binding */ modes),
-/* harmony export */   "pcset": () => (/* binding */ pcset)
+/* harmony export */   filter: () => (/* binding */ filter),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   includes: () => (/* binding */ includes),
+/* harmony export */   isEqual: () => (/* binding */ isEqual),
+/* harmony export */   isNoteIncludedIn: () => (/* binding */ isNoteIncludedIn),
+/* harmony export */   isSubsetOf: () => (/* binding */ isSubsetOf),
+/* harmony export */   isSupersetOf: () => (/* binding */ isSupersetOf),
+/* harmony export */   modes: () => (/* binding */ modes),
+/* harmony export */   pcset: () => (/* binding */ pcset)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_collection__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/collection */ "./node_modules/@tonaljs/collection/dist/index.mjs");
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
@@ -1857,8 +2459,8 @@ function listToChroma(set) {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ progression_default),
-/* harmony export */   "fromRomanNumerals": () => (/* binding */ fromRomanNumerals),
-/* harmony export */   "toRomanNumerals": () => (/* binding */ toRomanNumerals)
+/* harmony export */   fromRomanNumerals: () => (/* binding */ fromRomanNumerals),
+/* harmony export */   toRomanNumerals: () => (/* binding */ toRomanNumerals)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_chord__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/chord */ "./node_modules/@tonaljs/chord/dist/index.mjs");
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
@@ -1895,9 +2497,9 @@ var progression_default = { fromRomanNumerals, toRomanNumerals };
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "chromatic": () => (/* binding */ chromatic),
+/* harmony export */   chromatic: () => (/* binding */ chromatic),
 /* harmony export */   "default": () => (/* binding */ range_default),
-/* harmony export */   "numeric": () => (/* binding */ numeric)
+/* harmony export */   numeric: () => (/* binding */ numeric)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_collection__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/collection */ "./node_modules/@tonaljs/collection/dist/index.mjs");
 /* harmony import */ var _tonaljs_midi__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/midi */ "./node_modules/@tonaljs/midi/dist/index.mjs");
@@ -1935,9 +2537,9 @@ var range_default = { numeric, chromatic };
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ roman_numeral_default),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "tokenize": () => (/* binding */ tokenize)
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   tokenize: () => (/* binding */ tokenize)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 // index.ts
@@ -2006,17 +2608,17 @@ var roman_numeral_default = {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "NoScaleType": () => (/* binding */ NoScaleType),
-/* harmony export */   "add": () => (/* binding */ add),
-/* harmony export */   "addAlias": () => (/* binding */ addAlias),
-/* harmony export */   "all": () => (/* binding */ all),
+/* harmony export */   NoScaleType: () => (/* binding */ NoScaleType),
+/* harmony export */   add: () => (/* binding */ add),
+/* harmony export */   addAlias: () => (/* binding */ addAlias),
+/* harmony export */   all: () => (/* binding */ all),
 /* harmony export */   "default": () => (/* binding */ scale_type_default),
-/* harmony export */   "entries": () => (/* binding */ entries),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "keys": () => (/* binding */ keys),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "removeAll": () => (/* binding */ removeAll),
-/* harmony export */   "scaleType": () => (/* binding */ scaleType)
+/* harmony export */   entries: () => (/* binding */ entries),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   keys: () => (/* binding */ keys),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   removeAll: () => (/* binding */ removeAll),
+/* harmony export */   scaleType: () => (/* binding */ scaleType)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/core */ "./node_modules/@tonaljs/core/dist/index.mjs");
 /* harmony import */ var _tonaljs_pcset__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/pcset */ "./node_modules/@tonaljs/pcset/dist/index.mjs");
@@ -2232,16 +2834,16 @@ var scale_type_default = {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ scale_default),
-/* harmony export */   "extended": () => (/* binding */ extended),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "modeNames": () => (/* binding */ modeNames),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "rangeOf": () => (/* binding */ rangeOf),
-/* harmony export */   "reduced": () => (/* binding */ reduced),
-/* harmony export */   "scale": () => (/* binding */ scale),
-/* harmony export */   "scaleChords": () => (/* binding */ scaleChords),
-/* harmony export */   "scaleNotes": () => (/* binding */ scaleNotes),
-/* harmony export */   "tokenize": () => (/* binding */ tokenize)
+/* harmony export */   extended: () => (/* binding */ extended),
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   modeNames: () => (/* binding */ modeNames),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   rangeOf: () => (/* binding */ rangeOf),
+/* harmony export */   reduced: () => (/* binding */ reduced),
+/* harmony export */   scale: () => (/* binding */ scale),
+/* harmony export */   scaleChords: () => (/* binding */ scaleChords),
+/* harmony export */   scaleNotes: () => (/* binding */ scaleNotes),
+/* harmony export */   tokenize: () => (/* binding */ tokenize)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_chord_type__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/chord-type */ "./node_modules/@tonaljs/chord-type/dist/index.mjs");
 /* harmony import */ var _tonaljs_collection__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/collection */ "./node_modules/@tonaljs/collection/dist/index.mjs");
@@ -2377,9 +2979,9 @@ var scale_default = {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (/* binding */ time_signature_default),
-/* harmony export */   "get": () => (/* binding */ get),
-/* harmony export */   "names": () => (/* binding */ names),
-/* harmony export */   "parse": () => (/* binding */ parse)
+/* harmony export */   get: () => (/* binding */ get),
+/* harmony export */   names: () => (/* binding */ names),
+/* harmony export */   parse: () => (/* binding */ parse)
 /* harmony export */ });
 // index.ts
 var NONE = {
@@ -2452,46 +3054,46 @@ function build([up, down]) {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "accToAlt": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.accToAlt),
-/* harmony export */   "altToAcc": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.altToAcc),
-/* harmony export */   "coordToInterval": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.coordToInterval),
-/* harmony export */   "coordToNote": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.coordToNote),
-/* harmony export */   "decode": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.decode),
-/* harmony export */   "deprecate": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.deprecate),
-/* harmony export */   "distance": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.distance),
-/* harmony export */   "encode": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.encode),
-/* harmony export */   "fillStr": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.fillStr),
-/* harmony export */   "interval": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.interval),
-/* harmony export */   "isNamed": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.isNamed),
-/* harmony export */   "isPitch": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.isPitch),
-/* harmony export */   "note": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.note),
-/* harmony export */   "stepToLetter": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.stepToLetter),
-/* harmony export */   "tokenizeInterval": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.tokenizeInterval),
-/* harmony export */   "tokenizeNote": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.tokenizeNote),
-/* harmony export */   "transpose": () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.transpose),
-/* harmony export */   "AbcNotation": () => (/* reexport safe */ _tonaljs_abc_notation__WEBPACK_IMPORTED_MODULE_0__.default),
-/* harmony export */   "Array": () => (/* reexport module object */ _tonaljs_array__WEBPACK_IMPORTED_MODULE_1__),
-/* harmony export */   "Chord": () => (/* reexport safe */ _tonaljs_chord__WEBPACK_IMPORTED_MODULE_2__.default),
-/* harmony export */   "ChordDictionary": () => (/* binding */ ChordDictionary),
-/* harmony export */   "ChordType": () => (/* reexport safe */ _tonaljs_chord_type__WEBPACK_IMPORTED_MODULE_3__.default),
-/* harmony export */   "Collection": () => (/* reexport safe */ _tonaljs_collection__WEBPACK_IMPORTED_MODULE_4__.default),
-/* harmony export */   "Core": () => (/* reexport module object */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__),
-/* harmony export */   "DurationValue": () => (/* reexport safe */ _tonaljs_duration_value__WEBPACK_IMPORTED_MODULE_6__.default),
-/* harmony export */   "Interval": () => (/* reexport safe */ _tonaljs_interval__WEBPACK_IMPORTED_MODULE_7__.default),
-/* harmony export */   "Key": () => (/* reexport safe */ _tonaljs_key__WEBPACK_IMPORTED_MODULE_8__.default),
-/* harmony export */   "Midi": () => (/* reexport safe */ _tonaljs_midi__WEBPACK_IMPORTED_MODULE_9__.default),
-/* harmony export */   "Mode": () => (/* reexport safe */ _tonaljs_mode__WEBPACK_IMPORTED_MODULE_10__.default),
-/* harmony export */   "Note": () => (/* reexport safe */ _tonaljs_note__WEBPACK_IMPORTED_MODULE_11__.default),
-/* harmony export */   "PcSet": () => (/* binding */ PcSet),
-/* harmony export */   "Pcset": () => (/* reexport safe */ _tonaljs_pcset__WEBPACK_IMPORTED_MODULE_12__.default),
-/* harmony export */   "Progression": () => (/* reexport safe */ _tonaljs_progression__WEBPACK_IMPORTED_MODULE_13__.default),
-/* harmony export */   "Range": () => (/* reexport safe */ _tonaljs_range__WEBPACK_IMPORTED_MODULE_14__.default),
-/* harmony export */   "RomanNumeral": () => (/* reexport safe */ _tonaljs_roman_numeral__WEBPACK_IMPORTED_MODULE_15__.default),
-/* harmony export */   "Scale": () => (/* reexport safe */ _tonaljs_scale__WEBPACK_IMPORTED_MODULE_16__.default),
-/* harmony export */   "ScaleDictionary": () => (/* binding */ ScaleDictionary),
-/* harmony export */   "ScaleType": () => (/* reexport safe */ _tonaljs_scale_type__WEBPACK_IMPORTED_MODULE_17__.default),
-/* harmony export */   "TimeSignature": () => (/* reexport safe */ _tonaljs_time_signature__WEBPACK_IMPORTED_MODULE_18__.default),
-/* harmony export */   "Tonal": () => (/* binding */ Tonal)
+/* harmony export */   AbcNotation: () => (/* reexport safe */ _tonaljs_abc_notation__WEBPACK_IMPORTED_MODULE_0__["default"]),
+/* harmony export */   Array: () => (/* reexport module object */ _tonaljs_array__WEBPACK_IMPORTED_MODULE_1__),
+/* harmony export */   Chord: () => (/* reexport safe */ _tonaljs_chord__WEBPACK_IMPORTED_MODULE_2__["default"]),
+/* harmony export */   ChordDictionary: () => (/* binding */ ChordDictionary),
+/* harmony export */   ChordType: () => (/* reexport safe */ _tonaljs_chord_type__WEBPACK_IMPORTED_MODULE_3__["default"]),
+/* harmony export */   Collection: () => (/* reexport safe */ _tonaljs_collection__WEBPACK_IMPORTED_MODULE_4__["default"]),
+/* harmony export */   Core: () => (/* reexport module object */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__),
+/* harmony export */   DurationValue: () => (/* reexport safe */ _tonaljs_duration_value__WEBPACK_IMPORTED_MODULE_6__["default"]),
+/* harmony export */   Interval: () => (/* reexport safe */ _tonaljs_interval__WEBPACK_IMPORTED_MODULE_7__["default"]),
+/* harmony export */   Key: () => (/* reexport safe */ _tonaljs_key__WEBPACK_IMPORTED_MODULE_8__["default"]),
+/* harmony export */   Midi: () => (/* reexport safe */ _tonaljs_midi__WEBPACK_IMPORTED_MODULE_9__["default"]),
+/* harmony export */   Mode: () => (/* reexport safe */ _tonaljs_mode__WEBPACK_IMPORTED_MODULE_10__["default"]),
+/* harmony export */   Note: () => (/* reexport safe */ _tonaljs_note__WEBPACK_IMPORTED_MODULE_11__["default"]),
+/* harmony export */   PcSet: () => (/* binding */ PcSet),
+/* harmony export */   Pcset: () => (/* reexport safe */ _tonaljs_pcset__WEBPACK_IMPORTED_MODULE_12__["default"]),
+/* harmony export */   Progression: () => (/* reexport safe */ _tonaljs_progression__WEBPACK_IMPORTED_MODULE_13__["default"]),
+/* harmony export */   Range: () => (/* reexport safe */ _tonaljs_range__WEBPACK_IMPORTED_MODULE_14__["default"]),
+/* harmony export */   RomanNumeral: () => (/* reexport safe */ _tonaljs_roman_numeral__WEBPACK_IMPORTED_MODULE_15__["default"]),
+/* harmony export */   Scale: () => (/* reexport safe */ _tonaljs_scale__WEBPACK_IMPORTED_MODULE_16__["default"]),
+/* harmony export */   ScaleDictionary: () => (/* binding */ ScaleDictionary),
+/* harmony export */   ScaleType: () => (/* reexport safe */ _tonaljs_scale_type__WEBPACK_IMPORTED_MODULE_17__["default"]),
+/* harmony export */   TimeSignature: () => (/* reexport safe */ _tonaljs_time_signature__WEBPACK_IMPORTED_MODULE_18__["default"]),
+/* harmony export */   Tonal: () => (/* binding */ Tonal),
+/* harmony export */   accToAlt: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.accToAlt),
+/* harmony export */   altToAcc: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.altToAcc),
+/* harmony export */   coordToInterval: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.coordToInterval),
+/* harmony export */   coordToNote: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.coordToNote),
+/* harmony export */   decode: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.decode),
+/* harmony export */   deprecate: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.deprecate),
+/* harmony export */   distance: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.distance),
+/* harmony export */   encode: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.encode),
+/* harmony export */   fillStr: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.fillStr),
+/* harmony export */   interval: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.interval),
+/* harmony export */   isNamed: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.isNamed),
+/* harmony export */   isPitch: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.isPitch),
+/* harmony export */   note: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.note),
+/* harmony export */   stepToLetter: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.stepToLetter),
+/* harmony export */   tokenizeInterval: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.tokenizeInterval),
+/* harmony export */   tokenizeNote: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.tokenizeNote),
+/* harmony export */   transpose: () => (/* reexport safe */ _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__.transpose)
 /* harmony export */ });
 /* harmony import */ var _tonaljs_abc_notation__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @tonaljs/abc-notation */ "./node_modules/@tonaljs/abc-notation/dist/index.mjs");
 /* harmony import */ var _tonaljs_array__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @tonaljs/array */ "./node_modules/@tonaljs/array/dist/index.mjs");
@@ -2534,613 +3136,11 @@ __webpack_require__.r(__webpack_exports__);
 
 
 var Tonal = _tonaljs_core__WEBPACK_IMPORTED_MODULE_5__;
-var PcSet = _tonaljs_pcset__WEBPACK_IMPORTED_MODULE_12__.default;
-var ChordDictionary = _tonaljs_chord_type__WEBPACK_IMPORTED_MODULE_3__.default;
-var ScaleDictionary = _tonaljs_scale_type__WEBPACK_IMPORTED_MODULE_17__.default;
+var PcSet = _tonaljs_pcset__WEBPACK_IMPORTED_MODULE_12__["default"];
+var ChordDictionary = _tonaljs_chord_type__WEBPACK_IMPORTED_MODULE_3__["default"];
+var ScaleDictionary = _tonaljs_scale_type__WEBPACK_IMPORTED_MODULE_17__["default"];
 
 //# sourceMappingURL=index.mjs.map
-
-/***/ }),
-
-/***/ "./src/FunctionKernel.ts":
-/*!*******************************!*\
-  !*** ./src/FunctionKernel.ts ***!
-  \*******************************/
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "FunctionKernel": () => (/* binding */ FunctionKernel)
-/* harmony export */ });
-/* harmony import */ var _FunctionSequencer__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./FunctionSequencer */ "./src/FunctionSequencer.ts");
-/* harmony import */ var _RemoteUI__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./RemoteUI */ "./src/RemoteUI.ts");
-/* harmony import */ var _RemoteUIController__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./RemoteUIController */ "./src/RemoteUIController.ts");
-/* harmony import */ var tonal__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! tonal */ "./node_modules/tonal/dist/index.mjs");
-
-
-
-
-class FunctionKernel {
-    constructor(processor) {
-        this.remoteUI = new _RemoteUI__WEBPACK_IMPORTED_MODULE_1__.RemoteUI(this);
-        this.api = new _FunctionSequencer__WEBPACK_IMPORTED_MODULE_0__.FunctionAPI(this.remoteUI, this);
-        this.transport = {
-            tempo: 120,
-            timeSigDenominator: 4,
-            timeSigNumerator: 4,
-            playing: false,
-            currentBar: 0,
-            currentBarStarted: 0
-        };
-        this.registerParametersCalled = false;
-        this.parameterIds = [];
-        this.processor = processor;
-        this.additionalState = {};
-        this.additionalStateDirty = false;
-        this.cachedSetState = [];
-        this.uiController = new _RemoteUIController__WEBPACK_IMPORTED_MODULE_2__.RemoteUIController(this, processor.port);
-    }
-    onTick(ticks) {
-        if (!this.function) {
-            return;
-        }
-        try {
-            if (this.function.onTick) {
-                this.function.onTick(ticks);
-            }
-            this.flush();
-        }
-        catch (e) {
-            this.processor.port.postMessage({ source: "functionSeq", action: "error", error: e.toString(), stack: e.stack });
-            this.function = undefined;
-        }
-    }
-    /**
-     * Messages from main thread appear here.
-     * @param {MessageEvent} message
-     */
-    async onMessage(message) {
-        if (message.data && message.data.action == "function") {
-            try {
-                this.uiController.register(undefined);
-                this.registerParametersCalled = false;
-                this.function = new Function('api', 'ui', 'tonal', message.data.code)(this.api, this.remoteUI, tonal__WEBPACK_IMPORTED_MODULE_3__);
-                if (!!this.function.init) {
-                    this.function.init();
-                }
-                if (this.noteList && this.function.onCustomNoteList) {
-                    this.function.onCustomNoteList(this.noteList);
-                }
-                if (!this.registerParametersCalled) {
-                    // may have to not clear the cached set state or something like that. not sure.
-                    this.registerParameters([]);
-                }
-            }
-            catch (e) {
-                this.error(e);
-            }
-            this.flush();
-        }
-        else if (message.data && message.data.action == "noteList") {
-            this.noteList = message.data.noteList;
-            if (this.function && this.function.onCustomNoteList) {
-                this.function.onCustomNoteList(message.data.noteList);
-            }
-            this.flush();
-        }
-        else if (message.data && message.data.action == "additionalState") {
-            this.additionalState = message.data.state;
-            this.onStateChange();
-        }
-        else {
-            // @ts-ignore
-            super._onMessage(message);
-        }
-    }
-    onTransport(transportData) {
-        try {
-            if (this.transport && this.function) {
-                if (this.transport.playing && !transportData.playing) {
-                    if (this.function.onTransportStop) {
-                        this.function.onTransportStop(transportData);
-                    }
-                }
-                else if (!this.transport.playing && transportData.playing) {
-                    if (this.function.onTransportStart) {
-                        this.function.onTransportStart(transportData);
-                    }
-                }
-                this.flush();
-                this.transport = transportData;
-            }
-        }
-        catch (e) {
-            this.error(e);
-        }
-    }
-    onMidi(event) {
-        if (this.function && this.function.onMidi) {
-            try {
-                this.function.onMidi(event.bytes);
-                this.flush();
-            }
-            catch (e) {
-                this.error(e);
-            }
-        }
-    }
-    onAction(name) {
-        if (this.function && this.function.onAction) {
-            try {
-                this.function.onAction(name);
-                this.flush();
-            }
-            catch (e) {
-                this.error(e);
-            }
-        }
-    }
-    onStateChange() {
-        if (this.function && this.function.onStateChange) {
-            try {
-                this.function.onStateChange({ ...this.additionalState });
-                this.flush();
-            }
-            catch (e) {
-                this.error(e);
-            }
-        }
-    }
-    registerParameters(parameters) {
-        let map = {};
-        this.parameterIds = [];
-        for (let p of parameters) {
-            this.validateParameter(p);
-            map[p.id] = p.config;
-            this.parameterIds.push(p.id);
-        }
-        this.processor.port.postMessage({ source: "functionSeq", action: "newParams", params: parameters });
-        this.processor.updateParameters(map);
-        for (let state of this.cachedSetState) {
-            this.processor._setParameterValues(state, false);
-        }
-        this.cachedSetState = [];
-        this.registerParametersCalled = true;
-    }
-    validateParameter(p) {
-        if (p.id === undefined || p.config === undefined) {
-            throw new Error(`Invalid parameter ${p}: must have id and config defined`);
-        }
-        if (p.id.length == 0) {
-            throw new Error("Invalid parameter: id must be string and not blank");
-        }
-        if (['float', 'int', 'boolean', 'choice'].findIndex(t => t == p.config.type) == -1) {
-            throw new Error(`Invalid parameter type ${p.config.type}`);
-        }
-        const VALID_CONFIG_KEYS = ["label", "type", "defaultValue", "minValue", "maxValue", "discreteStep", "exponent", "choices", "units"];
-        for (let key of Object.keys(p.config)) {
-            if (VALID_CONFIG_KEYS.indexOf(key) == -1) {
-                throw new Error(`Param ${p.id}: Invalid configuration key ${key}.  Valid configuration keys are ${VALID_CONFIG_KEYS.join(",")}`);
-            }
-        }
-    }
-    setAdditionalState(name, value) {
-        this.additionalState[name] = value;
-        this.additionalStateDirty = true;
-    }
-    getAdditionalState(name) {
-        return this.additionalState[name];
-    }
-    error(e) {
-        this.processor.port.postMessage({ source: "functionSeq", action: "error", error: e.toString(), stack: e.stack });
-        this.function = undefined;
-    }
-    flush() {
-        this.uiController.flush();
-        if (this.additionalStateDirty) {
-            this.additionalStateDirty = false;
-            this.processor.port.postMessage({ source: "functionSeq", action: "additionalState", state: this.additionalState });
-            this.onStateChange();
-        }
-    }
-}
-
-
-/***/ }),
-
-/***/ "./src/FunctionSeqProcessor.ts":
-/*!*************************************!*\
-  !*** ./src/FunctionSeqProcessor.ts ***!
-  \*************************************/
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "MIDI": () => (/* binding */ MIDI),
-/* harmony export */   "FunctionSequencerProcessor": () => (/* binding */ FunctionSequencerProcessor)
-/* harmony export */ });
-/* harmony import */ var _FunctionKernel__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./FunctionKernel */ "./src/FunctionKernel.ts");
-
-const moduleId = "com.sequencerParty.functionSeq";
-const audioWorkletGlobalScope = globalThis;
-const PPQN = 96;
-class MIDI {
-}
-MIDI.NOTE_ON = 0x90;
-MIDI.NOTE_OFF = 0x80;
-MIDI.CC = 0xB0;
-const { registerProcessor } = audioWorkletGlobalScope;
-const ModuleScope = audioWorkletGlobalScope.webAudioModules.getModuleScope(moduleId);
-const { WamProcessor, } = ModuleScope;
-const DynamicParameterProcessor = ModuleScope.DynamicParameterProcessor;
-class FunctionSequencerProcessor extends DynamicParameterProcessor {
-    constructor(options) {
-        super(options);
-        this.count = 0;
-        this.function = new _FunctionKernel__WEBPACK_IMPORTED_MODULE_0__.FunctionKernel(this);
-    }
-    /**
-     * Implement custom DSP here.
-     * @param {number} startSample beginning of processing slice
-     * @param {number} endSample end of processing slice
-     * @param {Float32Array[][]} inputs
-     * @param {Float32Array[][]} outputs
-     */
-    _process(startSample, endSample, inputs, outputs) {
-        const { currentTime } = audioWorkletGlobalScope;
-        if (!this.transportData) {
-            return;
-        }
-        if (this.transportData.playing && currentTime >= this.transportData.currentBarStarted) {
-            var timeElapsed = currentTime - this.transportData.currentBarStarted;
-            var beatPosition = (this.transportData.currentBar * this.transportData.timeSigNumerator) + ((this.transportData.tempo / 60.0) * timeElapsed);
-            var tickPosition = Math.floor(beatPosition * PPQN);
-            if (this.ticks != tickPosition) {
-                this.ticks = tickPosition;
-                this.function.onTick(this.ticks);
-            }
-        }
-        return;
-    }
-    /**
-     * Messages from main thread appear here.
-     * @param {MessageEvent} message
-     */
-    async _onMessage(message) {
-        var _a, _b, _c;
-        if (message.data && message.data.source == "function") {
-            this.function.onMessage(message);
-        }
-        else if (message.data && message.data.source == "remoteUI") {
-            this.function.uiController.onMessage(message);
-        }
-        else {
-            if (message.data && message.data.request == "set/state") {
-                if (!this.function.registerParametersCalled && ((_c = (_b = (_a = message.data) === null || _a === void 0 ? void 0 : _a.content) === null || _b === void 0 ? void 0 : _b.state) === null || _c === void 0 ? void 0 : _c.parameterValues)) {
-                    // we queue up any setState calls until the script registers parameters, and then we send them out.
-                    // otherwise we drop initial state values saved in the script
-                    this.function.cachedSetState.push(message.data.content.state.parameterValues);
-                }
-            }
-            // @ts-ignore
-            super._onMessage(message);
-        }
-    }
-    _onTransport(transportData) {
-        this.transportData = transportData;
-        this.function.onTransport(transportData);
-    }
-    _onMidi(midiData) {
-        this.function.onMidi(midiData);
-    }
-}
-try {
-    registerProcessor('com.sequencerParty.functionSeq', FunctionSequencerProcessor);
-}
-catch (error) {
-    // eslint-disable-next-line no-console
-    console.warn(error);
-}
-
-
-/***/ }),
-
-/***/ "./src/FunctionSequencer.ts":
-/*!**********************************!*\
-  !*** ./src/FunctionSequencer.ts ***!
-  \**********************************/
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "FunctionAPI": () => (/* binding */ FunctionAPI)
-/* harmony export */ });
-/* harmony import */ var _FunctionSeqProcessor__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./FunctionSeqProcessor */ "./src/FunctionSeqProcessor.ts");
-var __classPrivateFieldSet = (undefined && undefined.__classPrivateFieldSet) || function (receiver, state, value, kind, f) {
-    if (kind === "m") throw new TypeError("Private method is not writable");
-    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-    return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
-};
-var __classPrivateFieldGet = (undefined && undefined.__classPrivateFieldGet) || function (receiver, state, kind, f) {
-    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-    return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-};
-var _FunctionAPI_ui, _FunctionAPI_kernel;
-
-const PPQN = 96;
-const audioWorkletGlobalScope = globalThis;
-class FunctionAPI {
-    constructor(ui, kernel) {
-        _FunctionAPI_ui.set(this, void 0);
-        _FunctionAPI_kernel.set(this, void 0);
-        __classPrivateFieldSet(this, _FunctionAPI_ui, ui, "f");
-        __classPrivateFieldSet(this, _FunctionAPI_kernel, kernel, "f");
-    }
-    /**
-     * emits a MIDI Note on message followed by a MIDI Note off message delayed by the duration
-     * @param channel {number} the MIDI channel minus one, from 0-15. So to emit on channel 1, send a 0.
-     * @param note {number} the MIDI note number, from 0-127
-     * @param velocity {number} MIDI note on velocity, from 0-127
-     * @param duration {number} the midi note duration, in seconds.
-     * @param startTime {number} optionally set the starting time of the note, in relation to api.getCurrentTime()
-     * */
-    emitNote(channel, note, velocity, duration, startTime) {
-        if (startTime === undefined) {
-            startTime = audioWorkletGlobalScope.currentTime;
-        }
-        if (!(Number.isInteger(channel) && channel >= 0 && channel <= 15)) {
-            throw new Error(`emitNote: channel value ${channel} invalid.  Must be integer value from 0-15 (ch#1-#16)`);
-        }
-        this.emitMidiEvent([_FunctionSeqProcessor__WEBPACK_IMPORTED_MODULE_0__.MIDI.NOTE_ON | channel, note, velocity], startTime);
-        this.emitMidiEvent([_FunctionSeqProcessor__WEBPACK_IMPORTED_MODULE_0__.MIDI.NOTE_OFF | channel, note, velocity], startTime + duration);
-    }
-    /**
-     * Emit a regular, non-sysex MIDI message up to 3 bytes in length.
-     * @param bytes {number[]} a 1 to 3 array of bytes, the raw MIDI message.
-     * @param eventTime {number} the time to emit the event, relative to api.getCurrentTime()
-     * */
-    emitMidiEvent(bytes, eventTime) {
-        if (bytes.length > 3) {
-            throw new Error("emitMidiEvent can only emit regular MIDI messages - use emitSysex to emit sysex messages.");
-        }
-        for (let i = 0; i < bytes.length; i++) {
-            if (!Number.isInteger(bytes[i]) || bytes[i] < 0 || bytes[i] > 255) {
-                throw new Error(`MIDI event byte at index ${i} is not an integer between 0-255, is ${bytes[i]}`);
-            }
-        }
-        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").processor.emitEvents({ type: 'wam-midi', time: eventTime, data: { bytes } });
-    }
-    /**
-     * returns the current time
-     * @returns {number} the current audioContext time, in seconds
-     */
-    getCurrentTime() {
-        return audioWorkletGlobalScope.currentTime;
-    }
-    /**
-     * returns the duration, in seconds, for the input number of ticks
-     * @param ticks {number} the number of ticks to convert to seconds
-     */
-    getTickDuration(ticks) {
-        return ticks * 1.0 / ((__classPrivateFieldGet(this, _FunctionAPI_kernel, "f").transport.tempo / 60.0) * PPQN);
-    }
-    /**
-     * Set (or unset) a list of named MIDI notes.  Used to inform earlier MIDI processors what MIDI notes are valid.
-     * @param noteList {NoteDefinition[]} a list of midi notes this processor accepts.  Set to undefined to clear the custom note list.
-     */
-    setCustomNoteList(noteList) {
-        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").processor.port.postMessage({ source: "functionSeq", action: "noteList", noteList });
-    }
-    /**
-     * Register the complete list of plugin parameters.  These parameters can be mapped to UI controls and are exposed to the host for automation.
-     * @param parameters {ParameterDefinition[]} the list of parameters to register for the plugin.
-     */
-    registerParameters(parameters) {
-        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").registerParameters(parameters);
-    }
-    /**
-     * Register a custom UI interface.
-     * @params root {RemoteUIElement} the top-level root UI element, usually a ui.Col or ui.Row.
-     */
-    registerUI(root) {
-        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").uiController.register(root);
-    }
-    /**
-     * Stores an additional variable into the patch.  This gets sent to other collaborators and will be restored after refreshing the page.
-     * Be warned: this is an expensive operation as the value change is sent to the server and all other users.  Only use this function
-     * to hold state that is not in a registered parameter (which are automatically synced to the server).
-     * Calling setState() will result in your onStateChange() callback running on all plugin instances including locally.
-     * @param name {string} the variable name
-     * @param value {any} the value to store
-     */
-    setState(name, value) {
-        __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").setAdditionalState(name, value);
-    }
-    /**
-     * Returns the stored value for a variable name that was previously stored with setState.
-     * @param name {string} the variable name to return
-     * @returns {any} the previously stored value, or undefined if nothing is stored.
-     */
-    getState(name) {
-        return __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").getAdditionalState(name);
-    }
-    /**
-     * Returns the values for all parameters that were registered by registerParameters.
-     * @returns {Record<string, number>} a map of parameter names to parameter values
-     */
-    getParams() {
-        let params = {};
-        for (let id of __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").parameterIds) {
-            params[id] = __classPrivateFieldGet(this, _FunctionAPI_kernel, "f").processor._parameterState[id].value;
-        }
-        return params;
-    }
-}
-_FunctionAPI_ui = new WeakMap(), _FunctionAPI_kernel = new WeakMap();
-
-
-/***/ }),
-
-/***/ "./src/RemoteUI.ts":
-/*!*************************!*\
-  !*** ./src/RemoteUI.ts ***!
-  \*************************/
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "RemoteUI": () => (/* binding */ RemoteUI)
-/* harmony export */ });
-var __classPrivateFieldSet = (undefined && undefined.__classPrivateFieldSet) || function (receiver, state, value, kind, f) {
-    if (kind === "m") throw new TypeError("Private method is not writable");
-    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-    return (kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value)), value;
-};
-var __classPrivateFieldGet = (undefined && undefined.__classPrivateFieldGet) || function (receiver, state, kind, f) {
-    if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-    if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-    return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-};
-var _RemoteUI_kernel;
-class RemoteUI {
-    constructor(kernel) {
-        _RemoteUI_kernel.set(this, void 0);
-        __classPrivateFieldSet(this, _RemoteUI_kernel, kernel, "f");
-    }
-    Col(name, children, properties) {
-        return {
-            type: "col",
-            name,
-            children,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Row(name, children, properties) {
-        return {
-            type: "row",
-            name,
-            children,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Action(name, properties) {
-        return {
-            type: "action",
-            name,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Toggle(name, properties) {
-        return {
-            type: "toggle",
-            name,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Knob(name, properties) {
-        return {
-            type: "knob",
-            name,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Slider(name, properties) {
-        return {
-            type: "slider",
-            name,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Label(name, properties) {
-        return {
-            type: "label",
-            name,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Select(name, properties) {
-        return {
-            type: "select",
-            name,
-            props: properties !== null && properties !== void 0 ? properties : {}
-        };
-    }
-    Highlight(name, value) {
-        __classPrivateFieldGet(this, _RemoteUI_kernel, "f").uiController.highlight(name, value);
-    }
-}
-_RemoteUI_kernel = new WeakMap();
-
-
-/***/ }),
-
-/***/ "./src/RemoteUIController.ts":
-/*!***********************************!*\
-  !*** ./src/RemoteUIController.ts ***!
-  \***********************************/
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "RemoteUIController": () => (/* binding */ RemoteUIController)
-/* harmony export */ });
-// this class runs in the remote context, handling the client's ui perspective
-class RemoteUIController {
-    constructor(kernel, port) {
-        this.kernel = kernel;
-        this.port = port;
-        this.pendingUpdates = [];
-    }
-    register(root) {
-        this.ui = root;
-        this.uiMap = {};
-        if (this.ui) {
-            const setMapValues = (el) => {
-                if (this.uiMap[el.name]) {
-                    throw new Error(`UI has two elements named ${el.name}`);
-                }
-                this.uiMap[el.name] = {};
-                if (el.children) {
-                    for (let child of el.children) {
-                        setMapValues(child);
-                    }
-                }
-            };
-            setMapValues(this.ui);
-        }
-        this.port.postMessage({ source: "remoteUI", action: "ui", ui: root ? JSON.stringify(root) : undefined });
-    }
-    highlight(name, value) {
-        try {
-            if (this.uiMap[name].highlighted != value) {
-                this.uiMap[name].highlighted = value;
-                this.pendingUpdates.push({ t: "high", f: name, v: value });
-            }
-        }
-        catch (e) {
-            console.error(`error highlighting ${name}: ${e}`);
-        }
-    }
-    flush() {
-        const updates = this.pendingUpdates;
-        this.pendingUpdates = [];
-        if (updates.length > 0) {
-            this.port.postMessage({ source: "remoteUI", action: "up", updates });
-        }
-    }
-    onMessage(message) {
-        if (!message.data || message.data.source != "remoteUI") {
-            return;
-        }
-        if (message.data.action == "action" && message.data.name) {
-            this.kernel.onAction(message.data.name);
-        }
-    }
-}
-
 
 /***/ })
 

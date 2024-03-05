@@ -10,7 +10,7 @@
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "JX3PKernel": () => (/* binding */ JX3PKernel)
+/* harmony export */   JX3PKernel: () => (/* binding */ JX3PKernel)
 /* harmony export */ });
 /* harmony import */ var _shared_midi_SelectParameter__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../shared/midi/SelectParameter */ "../shared/midi/SelectParameter.ts");
 /* harmony import */ var _shared_midi_IntParameter__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../../shared/midi/IntParameter */ "../shared/midi/IntParameter.ts");
@@ -149,8 +149,8 @@ class JX3PKernel {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "MIDI_CC": () => (/* binding */ MIDI_CC),
-/* harmony export */   "ControlChangeMessager": () => (/* binding */ ControlChangeMessager)
+/* harmony export */   ControlChangeMessager: () => (/* binding */ ControlChangeMessager),
+/* harmony export */   MIDI_CC: () => (/* binding */ MIDI_CC)
 /* harmony export */ });
 const MIDI_CC = 0xB0;
 class ControlChangeMessager {
@@ -192,7 +192,7 @@ class ControlChangeMessager {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "IntParameter": () => (/* binding */ IntParameter)
+/* harmony export */   IntParameter: () => (/* binding */ IntParameter)
 /* harmony export */ });
 const MIDI_CC = 0xB0;
 class IntParameter {
@@ -301,7 +301,7 @@ class IntParameter {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "SelectParameter": () => (/* binding */ SelectParameter)
+/* harmony export */   SelectParameter: () => (/* binding */ SelectParameter)
 /* harmony export */ });
 class SelectParameter {
     constructor(id, label, messager, defaultValue, options) {
