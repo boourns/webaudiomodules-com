@@ -1,0 +1,16 @@
+{
+    "identifier": "com.sequencerParty.drumComputer",
+    "name": "DRM-16 DrumComputer",
+    "vendor": "Sequencer Party",
+    "description": "16-pad MIDI drum sampler",
+    "version": "1.0.0",
+    "sdkVersion": "1.0.0",
+    "thumbnail": "screenshot.png",
+    "keywords": ["drum-machine", "sampler"],
+    "isInstrument": true,
+    "website": "https://sequencer.party",
+    "hasMidiInput": true,
+    "hasMidiOutput": false,
+    "hasAudioOutput": true,
+    "hasAudioInput": false
+}

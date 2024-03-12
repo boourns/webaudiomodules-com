@@ -1,0 +1,15 @@
+{
+    "identifier": "com.sequencerParty.threejs",
+    "name": "ThreeJS Video Generator",
+    "vendor": "Sequencer Party",
+    "description": "Livecode 3d video scenes using three.js",
+    "version": "1.0.0",
+    "sdkVersion": "1.0.0",
+    "thumbnail": "screenshot.png",
+    "keywords": ["video", "generator"],
+    "isInstrument": false,
+    "website": "https://sequencer.party",
+    "hasVideoOutput": true,
+    "hasMidiInput": true,
+    "hasAudioInput": true
+}

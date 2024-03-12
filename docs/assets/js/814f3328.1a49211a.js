@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunkwebaudiomodules_com=self.webpackChunkwebaudiomodules_com||[]).push([[472],{5513:e=>{e.exports=JSON.parse('{"title":"Recent posts","items":[{"title":"New Website","permalink":"/news/2024/03/12/new-website","unlisted":false}]}')}}]);
