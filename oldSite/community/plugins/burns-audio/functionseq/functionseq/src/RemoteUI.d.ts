@@ -1,0 +1,30 @@
+import { FunctionKernel } from "./FunctionKernel";
+export declare type RemoteUIElementProperties = {
+    width?: number;
+    height?: number;
+    label?: string;
+    highlighted?: boolean;
+    padding?: number;
+    showValue?: boolean;
+    horizontal?: boolean;
+    centered?: boolean;
+};
+export declare type RemoteUIElement = {
+    type: "action" | "toggle" | "knob" | "slider" | "select" | "label" | "col" | "row";
+    name: string;
+    props: RemoteUIElementProperties;
+    children?: RemoteUIElement[];
+};
+export declare class RemoteUI {
+    #private;
+    constructor(kernel: FunctionKernel);
+    Col(name: string, children: RemoteUIElement[], properties?: RemoteUIElementProperties): RemoteUIElement;
+    Row(name: string, children: RemoteUIElement[], properties?: RemoteUIElementProperties): RemoteUIElement;
+    Action(name: string, properties?: RemoteUIElementProperties): RemoteUIElement;
+    Toggle(name: string, properties?: RemoteUIElementProperties): RemoteUIElement;
+    Knob(name: string, properties?: RemoteUIElementProperties): RemoteUIElement;
+    Slider(name: string, properties?: RemoteUIElementProperties): RemoteUIElement;
+    Label(name: string, properties?: RemoteUIElementProperties): RemoteUIElement;
+    Select(name: string, properties?: RemoteUIElementProperties): RemoteUIElement;
+    Highlight(name: string, value: boolean): void;
+}

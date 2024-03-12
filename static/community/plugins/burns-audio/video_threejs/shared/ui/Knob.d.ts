@@ -1,0 +1,66 @@
+import { Component, h } from 'preact';
+export declare type KnobProps = {
+    value: () => number;
+    label: string;
+    size: number;
+    padding: number;
+    bipolar: boolean;
+    integer?: boolean;
+    minimumValue: number;
+    maximumValue: number;
+    defaultValue?: number;
+    color: string;
+    onChange(value: number): void;
+    valueString?(value: number): string;
+    units?: string;
+    decimals?: number;
+    showValue?: boolean;
+};
+declare type KnobState = {};
+export declare class Knob extends Component<KnobProps, KnobState> {
+    static defaultProps: {
+        minimumValue: number;
+        maximumValue: number;
+        size: number;
+        value: number;
+        padding: number;
+        integer: boolean;
+        color: string;
+        label: string;
+        bipolar: boolean;
+        units: string;
+        decimals: number;
+        showValue: boolean;
+    };
+    pressed: boolean;
+    ref?: HTMLDivElement;
+    position?: {
+        x: number;
+        y: number;
+    };
+    dragStartValue?: number;
+    center: [number, number];
+    radii: [number, number];
+    svg: SVGElement;
+    range: SVGElement;
+    arc: SVGElement;
+    valueLabel?: HTMLLabelElement | null;
+    animationRequest?: number;
+    animationTimeout?: number;
+    lastValue?: number;
+    constructor();
+    componentDidMount(): void;
+    componentWillUnmount(): void;
+    cancelAnimation(): void;
+    scheduleAnimation(): void;
+    scheduleFrame(): void;
+    animationFrame(): void;
+    setup(ref: HTMLDivElement | null): void;
+    onDoubleClick(e: MouseEvent): void;
+    onMousedown(e: MouseEvent): void;
+    onMouseup(e: MouseEvent): void;
+    onMousemove(e: MouseEvent): void;
+    setValue(v: number): void;
+    render(): h.JSX.Element;
+}
+export {};
