@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <id>https://www.webaudiomodules.com/news</id>
+    <title>Web Audio Modules 2 Blog</title>
+    <updated>2024-03-12T00:00:00.000Z</updated>
+    <generator>https://github.com/jpmonette/feed</generator>
+    <link rel="alternate" href="https://www.webaudiomodules.com/news"/>
+    <subtitle>Web Audio Modules 2 Blog</subtitle>
+    <icon>https://www.webaudiomodules.com/img/favicon.png</icon>
+    <entry>
+        <title type="html"><![CDATA[New Website]]></title>
+        <id>https://www.webaudiomodules.com/news/2024/03/12/new-website</id>
+        <link href="https://www.webaudiomodules.com/news/2024/03/12/new-website"/>
+        <updated>2024-03-12T00:00:00.000Z</updated>
+        <summary type="html"><![CDATA[Welcome, this is the new website for Web Audio Modules. It's still under construction. We're trying to get it out in time for WAC 2024]]></summary>
+        <content type="html"><![CDATA[<p>Welcome, this is the new website for Web Audio Modules. It's still under construction. We're trying to get it out in time for WAC 2024</p>
+<ul>
+<li>Suggestions are appreciated via <a href="https://github.com/Boourns/webaudiomodules.com/issues" target="_blank" rel="noopener noreferrer">Github</a>.</li>
+<li>Join the conversation on <a href="https://web-audio-slackin.herokuapp.com/" target="_blank" rel="noopener noreferrer">Slack</a></li>
+</ul>]]></content>
+        <author>
+            <name>Kevin Chavez</name>
+            <uri>https://github.com/mrkev</uri>
+        </author>
+        <category label="website" term="website"/>
+    </entry>
+</feed>

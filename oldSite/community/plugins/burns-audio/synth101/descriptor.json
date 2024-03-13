@@ -1,0 +1,16 @@
+{
+    "identifier": "com.sequencerParty.synth101",
+    "name": "Synth-101",
+    "vendor": "Sequencer Party",
+    "description": "Software clone of a simple monophonic synthesizer classic, the Roland SH-101",
+    "version": "1.0.0",
+    "sdkVersion": "1.0.0",
+    "thumbnail": "screenshot.png",
+    "keywords": ["synth"],
+    "isInstrument": true,
+    "website": "https://sequencer.party",
+    "hasMidiInput": true,
+    "hasMidiOutput": false,
+    "hasAudioOutput": true,
+    "hasAudioInput": false
+}
