@@ -6,6 +6,10 @@ sidebar_position: 4
 
 - [Github Org](https://github.com/webaudiomodules)
 
+- [NPM Packages](https://www.npmjs.com/org/webaudiomodules)
+
+- [Slack Channel](https://web-audio-slackin.herokuapp.com/)
+
 :::tip[Under construction]
 This section is under construction.
 :::
