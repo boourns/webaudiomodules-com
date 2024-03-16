@@ -4,5 +4,5 @@
   "compilerOptions": {
     "baseUrl": "."
   },
-  "exclude": ["docs"]
+  "exclude": ["docs/**", "static/**", "oldSite/**"]
 }
