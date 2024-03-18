@@ -4,11 +4,11 @@ sidebar_position: 4
 
 # Links
 
-- [Github Org](https://github.com/webaudiomodules)
+- [The WAM Github organization](https://github.com/webaudiomodules), V2.0 repos are api, sdk, sdk-parammgr, wam-examples.
 
-- [NPM Packages](https://www.npmjs.com/org/webaudiomodules)
+- [WAM SDKs as NPM Packages](https://www.npmjs.com/org/webaudiomodules).
 
-- [Slack Channel](https://web-audio-slackin.herokuapp.com/)
+- [WebAudio Slack Channel](https://web-audio-slackin.herokuapp.com/), there is a subchannel named #webaudiomodules where you can meet the WAM core team (@tom, @micbuffa, @Shihong REN, @owen, @sletz, and developers like @aykev).
 
 :::tip[Under construction]
 This section is under construction.
